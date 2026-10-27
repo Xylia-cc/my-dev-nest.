@@ -1,0 +1,24 @@
+# 依赖与临时产物
+node_modules/
+*.log
+
+# 引擎调试副本（临时注入日志用，不入库）
+assembly_calculator/engine_debug*.js
+assembly_calculator/engine_dbg*.js
+
+# 发布产物（由 publish/build_gh.js 生成，Actions 里重新构建）
+site/
+
+# 历史发布目录（体积大，无需入库）
+publish-*/
+site-*/
+dist/
+
+# 测试临时文件
+.workbuddy/tmp/
+*.xlsx.bak
+~$*.xlsx
+
+# 旧版本单文件版
+分仓组装量计算器-单文件版.html
+分仓组装量计算器-离线版-2026*.html

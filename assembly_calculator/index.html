@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>分仓组装量计算器</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#0e1016; --panel:#161922; --panel2:#1d212c; --bd:#2a2f3e; --bd2:#363c4e;
+    --tx:#e8ebf2; --mut:#a6afc0; --acc:#5b94ff; --acc-soft:rgba(91,148,255,.12);
+    --ok:#3fd6a4; --ok-soft:rgba(63,214,164,.14);
+    --warn:#f5b455; --warn-soft:rgba(245,180,85,.14);
+    --bad:#ff7171; --bad-soft:rgba(255,113,113,.14);
+    --chip:#222734; --radius:12px; --radius-sm:8px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.55 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+  ::selection{background:var(--acc-soft)}
+  /* scrollbar */
+  *::-webkit-scrollbar{width:10px;height:10px}
+  *::-webkit-scrollbar-thumb{background:#2c3340;border-radius:8px;border:2px solid var(--bg)}
+  *::-webkit-scrollbar-thumb:hover{background:#39414f}
+
+  header{padding:20px 24px;border-bottom:1px solid var(--bd);background:linear-gradient(180deg,#171b26,#0e1016)}
+  header h1{margin:0;font-size:20px;font-weight:700;letter-spacing:.3px}
+  header p{margin:6px 0 0;color:var(--mut);font-size:12px}
+
+  .wrap{max-width:1200px;margin:0 auto;padding:20px 24px 64px}
+
+  .panel{background:var(--panel);border:1px solid var(--bd);border-radius:var(--radius);padding:18px 20px;margin-bottom:18px}
+  .panel h2{margin:0 0 14px;font-size:16px;font-weight:600;display:flex;align-items:center;gap:10px}
+  .panel h2.mt{margin-top:22px}
+
+  .row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+  .mt{margin-top:14px}
+
+  /* step badge */
+  .step{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;padding:0 8px;background:var(--acc-soft);color:var(--acc);border:1px solid rgba(91,148,255,.32);border-radius:8px;font-size:14px;font-weight:700;line-height:1}
+
+  /* buttons */
+  button{background:var(--acc);color:#fff;border:0;border-radius:var(--radius-sm);padding:10px 16px;font-size:14px;cursor:pointer;font-weight:600;transition:background .15s ease,transform .05s ease}
+  button:hover{background:#6ea1ff}
+  button:active{transform:translateY(1px)}
+  button.ghost{background:var(--chip);color:var(--tx);border:1px solid var(--bd)}
+  button.ghost:hover{border-color:var(--bd2);background:#272d3b}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+  input[type=file]{display:none}
+  .filelabel{display:inline-flex;align-items:center;background:var(--chip);border:1px solid var(--bd);border-radius:var(--radius-sm);padding:9px 14px;cursor:pointer;color:var(--tx);font-size:14px;transition:border-color .15s ease,background .15s ease;text-decoration:none}
+  .filelabel:hover{border-color:var(--acc);background:#272d3b}
+  .filelabel:focus-within{outline:2px solid var(--acc);outline-offset:2px}
+  .fn{color:var(--mut);font-size:12px;margin-left:4px}
+
+  details{margin-top:8px;border:1px solid var(--bd);border-radius:var(--radius-sm);background:var(--panel2)}
+  summary{cursor:pointer;color:var(--acc);font-size:14px;padding:10px 14px;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"+";display:inline-block;width:16px;font-weight:700;color:var(--mut)}
+  details[open] summary::before{content:"\2212"}
+  details > div{padding:0 14px 14px}
+
+  .rules-compact{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+  .rules-compact span{background:var(--panel2);border:1px solid var(--bd);border-radius:8px;padding:6px 10px;font-size:12px;line-height:1.5;color:var(--mut);max-width:380px}
+  .rules-compact b{color:var(--acc);font-weight:600;margin-right:4px}
+
+  table{border-collapse:collapse;width:100%;margin-top:12px;font-size:12px}
+  th,td{border:1px solid var(--bd);padding:8px 12px;text-align:left}
+  th{background:var(--panel2);position:sticky;top:0;font-weight:600;color:var(--tx);white-space:nowrap}
+  tbody tr:hover{background:rgba(255,255,255,.035)}
+  td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+  .ok{color:var(--ok)} .bad{color:var(--bad)} .warn{color:var(--warn)} .mut{color:var(--mut)}
+
+  .pill{display:inline-block;background:var(--chip);border:1px solid var(--bd);border-radius:999px;padding:2px 10px;font-size:12px;margin:1px 2px}
+  .pill.ok{color:var(--ok);border-color:rgba(63,214,164,.35)}
+  .pill.acc{color:var(--acc);border-color:rgba(91,148,255,.35)}
+
+  .scroll{overflow:auto;max-height:520px;border:1px solid var(--bd);border-radius:10px}
+  .scroll table{margin-top:0}
+  .scroll th{position:sticky;top:0;z-index:1}
+
+  .totbar{display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
+  .totbar .b{background:var(--panel2);border:1px solid var(--bd);border-left:3px solid var(--acc);border-radius:10px;padding:10px 18px;min-width:120px}
+  .totbar .b .bl{display:block;font-size:12px;color:var(--mut);margin-bottom:3px}
+  .totbar .b b{font-size:20px;color:var(--acc);font-weight:700}
+
+  .note{font-size:12px;color:var(--mut);margin-top:10px;line-height:1.65}
+  .note-reco{margin:0 0 14px;padding:10px 14px;background:var(--acc-soft);border:1px solid rgba(91,148,255,.3);border-radius:10px;color:#cdd9f5}
+  .note code{background:var(--chip)}
+
+  .tag{display:inline-block;padding:2px 9px;border-radius:6px;font-size:12px;font-weight:600;margin-right:6px;vertical-align:middle}
+  .tag-ok{background:var(--ok-soft);color:var(--ok);border:1px solid rgba(63,214,164,.32)}
+  .tag-warn{background:var(--warn-soft);color:var(--warn);border:1px solid rgba(245,180,85,.32)}
+  .tag-acc{background:var(--acc-soft);color:var(--acc);border:1px solid rgba(91,148,255,.32)}
+
+  code{background:var(--chip);padding:1px 6px;border-radius:5px;color:var(--acc);font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>分仓组装量计算器</h1>
+  <p>按需求与库存计算各父件可组装量 · 支持可替换子件(子件取C列配比 / 替换组主件取备注换配比)与共享子件互斥消耗</p>
+</header>
+
+<div class="wrap">
+
+  <div class="panel">
+    <h2><span class="step">1</span> 计算规则</h2>
+    <div class="rules-compact">
+      <span><b>① 优先级</b>同仓共享子件按「子件销量=父件日均×配比」降序分配</span>
+      <span><b>② 可替换</b>同(父件,替换组)子件互为替代；子件列配比取C列、替换组主件取备注换配比，先扣替代件再扣主件</span>
+      <span><b>③ 共享</b>按(子件,仓库)库存池递减分配至耗尽，不齐套则释放给下一父件</span>
+      <span><b>④ 齐套</b>所有子件×配比都满足才算1套，按需求封顶</span>
+      <span><b>⑤ 关系类别</b>同父件可拆「供应商子件/单一子件」两组（供应商组先消耗、单一组后消耗，库存隔离互不抢占）；两组的(父件,仓库)均按需求封顶</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2><span class="step">2</span> 数据导入（一张 Excel 即可）</h2>
+    <div class="note note-reco"><span class="tag tag-acc">推荐</span>把 <b>BOM关系</b> / <b>需求</b> / <b>库存</b> 三张表放进<b>同一个 Excel 文件</b>的三个工作表（sheet 名含「BOM关系」「需求」「库存」关键字即可），一次上传直接算。</div>
+    <div class="row">
+      <label class="filelabel">选择 Excel(.xlsx) 含三表
+        <input type="file" id="excelFile" accept=".xlsx,.xls" />
+      </label>
+      <span class="fn" id="excelName">未选择</span>
+      <button class="ghost" id="btnTpl">下载 Excel 模板</button>
+      <button id="btnCalc">解析并计算</button>
+    </div>
+    <details class="mt">
+      <summary>或分别上传 3 个 CSV（备选）</summary>
+      <div class="row mt">
+        <label class="filelabel">BOM关系.csv<input type="file" id="csvBom" accept=".csv" /></label>
+        <label class="filelabel">需求.csv<input type="file" id="csvDemand" accept=".csv" /></label>
+        <label class="filelabel">库存.csv<input type="file" id="csvInv" accept=".csv" /></label>
+      </div>
+    </details>
+    <div class="note">表头支持中英文别名，缺省仓库名为「默认仓」。<b>BOM关系表无需仓库列</b>（父件级展开，各仓共用）；需求/库存在各自列填仓库。Excel 三个工作表名称只需含 <code>BOM关系</code> / <code>需求</code> / <code>库存</code> 关键字即可自动匹配。</div>
+    <details class="mt">
+      <summary>查看字段说明</summary>
+      <div class="note">
+        <b>BOM关系（不区分仓库，父件级展开）</b>：父件, 子件, [配比], [替换组], [备注], [关系类别]<br>
+        &nbsp;&nbsp;· 同一父件在各仓库共用这一套展开；<b>不要</b>填仓库列<br>
+        &nbsp;&nbsp;· 配比 = 每 1 套父件需该子件数量（默认1）<br>
+        &nbsp;&nbsp;· 替换组 = 同组子件互为替代；<b>配比对应</b>：【子件列】那个料配比取【配比列(C列)】；【替换组列】那个料(主件)配比取【备注「换配比:N」】（主件未显式列出时按此隐式加入）。<br>
+        &nbsp;&nbsp;&nbsp;&nbsp;例：子件=1764992(C列配比2)、替换组=1822303、备注=换配比:1 → 替代件1764992配比=2，主件1822303配比=1，先扣替代件再扣主件<br>
+        &nbsp;&nbsp;· 关系类别(可空)：同父件行可填「供应商子件」/「单一子件」，用于把该父件拆成<b>不同组装组</b>（供应商组先消耗库存、单一组后消耗，两组库存隔离互不抢占）；两组均按(父件,仓库)需求封顶。空白=单一子件<br>
+        <b>需求（按仓库）</b>：父件, 仓库, 需求, [销量], [关系类别]（销量用于优先级，缺省0）<br>
+        &nbsp;&nbsp;· 关系类别(可空)：供应商子件/单一子件用于<b>分组隔离</b>（供应商组先消耗、单一组后消耗）；两者均按需求封顶。空白=单一子件<br>
+        <b>库存（按仓库）</b>：子件, 仓库, 库存<br>
+        &nbsp;&nbsp;· 每个仓库的父件需求<b>只能使用本仓库</b>的子件库存
+      </div>
+    </details>
+  </div>
+
+  <div class="panel" id="resultPanel" style="display:none">
+    <div class="row" style="justify-content:space-between;margin-bottom:14px">
+      <h2 style="margin:0"><span class="step">3</span> 计算结果</h2>
+      <div class="row" style="gap:8px">
+        <button class="ghost" id="btnCsv">导出 CSV</button>
+        <button class="ghost" id="btnXlsx">导出 XLSX</button>
+      </div>
+    </div>
+    <div class="totbar" id="totbar"></div>
+    <h2 class="mt">最终组装分配结果</h2>
+    <div class="scroll">
+      <table id="resultTable"></table>
+    </div>
+    <h2 class="mt">父件实际消耗明细（实际组成套消耗的子件）</h2>
+    <div class="scroll">
+      <table id="consDetailTable"></table>
+    </div>
+    <h2 class="mt">库存消耗汇总（按仓库+子件）</h2>
+    <div class="scroll">
+      <table id="consTable"></table>
+    </div>
+    <h2 class="mt">各父件 slot 容量（透明核对）</h2>
+    <div class="scroll">
+      <table id="slotTable"></table>
+    </div>
+    <div class="note mt" id="warnBox"></div>
+  </div>
+
+</div>
+
+<script src="engine.js"></script>
+<script src="sample_data.js"></script>
+<script>
+(function(){
+  var LAST = null; // 存最近一次计算结果
+
+  function $(id){return document.getElementById(id);}
+
+  // 动态生成"三表合一"的 Excel 模板（含 BOM关系/需求/库存/说明 四张工作表）
+  function downloadTemplate(){
+    if(typeof XLSX==='undefined'){ alert('Excel 组件未加载（可能离线），无法生成模板，请联网后重试。'); return; }
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['父件','子件','配比','替换组','备注','关系类别'],
+      ['例P1','例C1',1,'','',''],
+      ['例P1','例C2b',1,'例C2','换配比:2','']
+    ]), 'BOM关系');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['父件','仓库','需求','销量','关系类别'],
+      ['例P1','仓A',100,1000,'']
+    ]), '需求');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['子件','仓库','库存'],
+      ['例C1','仓A',200],
+      ['例C2b','仓A',50],
+      ['例C2','仓A',100]
+    ]), '库存');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+      ['字段说明', ''],
+      ['', ''],
+      ['BOM关系', '父件, 子件, 配比, 替换组, 备注, [关系类别]'],
+      ['', '配比 = 每1套父件需该子件数量（默认1）'],
+      ['', '替换组 = 同组子件互为替代。【配比对应】子件列那个料配比取C列；替换组列那个料(主件)配比取备注「换配比:N」'],
+      ['', '例：子件=1764992(C列配比2)、替换组=1822303、备注=换配比:1 → 替代件1764992配比2、主件1822303配比1，先扣替代件再扣主件'],
+      ['', '关系类别(可空) = 同父件行填「供应商子件」/「单一子件」用于拆成不同组装组（供应商组先消耗、单一组后消耗，库存隔离）；两组均按(父件,仓库)需求封顶。空白=单一子件'],
+      ['需求', '父件, 仓库, 需求, 销量, [关系类别]（销量用于优先级，缺省0）'],
+      ['', '关系类别(可空) = 供应商子件/单一子件用于分组隔离；两者均按需求封顶。空白=单一子件'],
+      ['库存', '子件, 仓库, 库存'],
+      ['', ''],
+      ['用法', '三张表放进同一个 Excel 的三个工作表即可，sheet 名含 BOM关系 / 需求 / 库存 关键字。']
+    ]), '说明');
+    XLSX.writeFile(wb, '组装量计算模板.xlsx');
+  }
+
+  function sheetMatcher(wb, keys){
+    var names = wb.SheetNames;
+    for(var i=0;i<names.length;i++){
+      var n = names[i].toLowerCase();
+      for(var k=0;k<keys.length;k++){
+        if(n.indexOf(keys[k].toLowerCase())>=0) return wb.Sheets[names[i]];
+      }
+    }
+    return null;
+  }
+  function sheetToRows(sheet){
+    if(!sheet) return [];
+    return XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+  }
+  function readExcelFile(file){
+    return new Promise(function(resolve,reject){
+      var rd = new FileReader();
+      rd.onload = function(e){
+        try{
+          var wb = XLSX.read(new Uint8Array(e.target.result), {type:'array'});
+          var bomS = sheetMatcher(wb,['bom','bom关系','物料']) || wb.Sheets[wb.SheetNames[0]];
+          var demS = sheetMatcher(wb,['需求','demand']) || wb.Sheets[wb.SheetNames[1]];
+          var invS = sheetMatcher(wb,['库存','inv','stock']) || wb.Sheets[wb.SheetNames[2]];
+          resolve({bom:sheetToRows(bomS), demand:sheetToRows(demS), inv:sheetToRows(invS)});
+        }catch(err){reject(err);}
+      };
+      rd.onerror = reject;
+      rd.readAsArrayBuffer(file);
+    });
+  }
+  function readCsvFile(file){
+    return new Promise(function(resolve,reject){
+      var rd = new FileReader();
+      rd.onload = function(e){
+        try{
+          var wb = XLSX.read(String(e.target.result), {type:'string'});
+          var rows = sheetToRows(wb.Sheets[wb.SheetNames[0]]);
+          resolve(rows);
+        }catch(err){reject(err);}
+      };
+      rd.onerror = reject;
+      rd.readAsText(file);
+    });
+  }
+
+  $('excelFile').addEventListener('change', function(e){
+    var f = e.target.files[0];
+    $('excelName').textContent = f ? f.name : '未选择';
+  });
+
+  $('btnTpl').addEventListener('click', downloadTemplate);
+
+  $('btnCalc').addEventListener('click', async function(){
+    var ef = $('excelFile').files[0];
+    var cb = $('csvBom').files[0], cd = $('csvDemand').files[0], ci = $('csvInv').files[0];
+    try{
+      if(ef){
+        var d = await readExcelFile(ef);
+        runCompute(d.bom, d.demand, d.inv);
+      } else if(cb && cd && ci){
+        var b = await readCsvFile(cb);
+        var dm = await readCsvFile(cd);
+        var iv = await readCsvFile(ci);
+        runCompute(b, dm, iv);
+      } else {
+        alert('请先选择文件：\n· 一个 Excel（含 BOM关系 / 需求 / 库存 三个工作表），或\n· 分别上传 3 个 CSV。\n选择后再点「解析并计算」。');
+      }
+    }catch(err){
+      alert('解析失败：'+err.message);
+    }
+  });
+
+  function runCompute(bom, demand, inv){
+    var res = AssemblyEngine.compute(bom, demand, inv, {capByDemand:true});
+    LAST = res;
+    render(res);
+    $('resultPanel').style.display = '';
+  }
+
+  function esc(s){return String(s==null?'':s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+
+  function render(res){
+    // totals
+    var rate = res.totals.demand>0 ? (res.totals.assembled/res.totals.demand*100) : 0;
+    $('totbar').innerHTML =
+      '<div class="b"><span class="bl">总需求</span><b>'+res.totals.demand+'</b></div>'+
+      '<div class="b"><span class="bl">总组装</span><b>'+res.totals.assembled+'</b></div>'+
+      '<div class="b"><span class="bl">齐套率</span><b>'+rate.toFixed(1)+'%</b></div>';
+
+    // result table
+    var rt = $('resultTable');
+    var h = '<thead><tr><th>仓库</th><th>父件</th><th class="r">销量</th><th class="r">需求</th><th class="r">组装量</th><th class="r">缺口</th><th>齐套率</th><th>关系类别</th></tr></thead><tbody>';
+    res.results.forEach(function(r){
+      var cls = r.assembled>=r.demand ? 'ok' : (r.assembled>0?'warn':'bad');
+      var rr = r.demand>0 ? (r.assembled/r.demand*100).toFixed(0)+'%' : '-';
+      var catLabel = r.category || '单一子件';
+      var catCls = r.isSupplier ? 'ok' : 'mut';
+      h += '<tr><td>'+esc(r.warehouse)+'</td><td>'+esc(r.parent)+'</td>'+
+           '<td class="r">'+r.sales+'</td><td class="r">'+r.demand+'</td>'+
+           '<td class="r '+cls+'"><b>'+r.assembled+'</b></td>'+
+           '<td class="r '+(r.shortfall>0?'bad':'')+'">'+r.shortfall+'</td>'+
+           '<td>'+rr+'</td>'+
+           '<td><span class="pill '+catCls+'">'+esc(catLabel)+'</span></td></tr>';
+    });
+    h += '</tbody>';
+    rt.innerHTML = h;
+
+    // 父件实际消耗明细（实际组成套消耗的子件：实际消耗 = 覆盖套数 × 该子件配比；按关系1/2 拆分展示）
+    var cdt = $('consDetailTable');
+    var h4 = '<thead><tr><th>仓库</th><th>父件</th><th>子件</th><th>类型</th><th class="r">配比</th><th class="r">覆盖套数</th><th class="r">实际消耗</th><th class="r">关系</th><th>类别</th></tr></thead><tbody>';
+    var dlist = res.consumptionDetail||[];
+    dlist.forEach(function(c){
+      h4 += '<tr><td>'+esc(c.warehouse)+'</td><td>'+esc(c.parent)+'</td>'+
+            '<td>'+esc(c.child)+'</td>'+
+            '<td>'+(c.isPrimary?'<span class="pill">主</span>':'<span class="pill">替代</span>')+'</td>'+
+            '<td class="r">'+fmt(c.ratio)+'</td>'+
+            '<td class="r">'+fmt(c.setsCovered)+'</td>'+
+            '<td class="r">'+fmt(c.used)+'</td>'+
+            '<td class="r"><span class="tag '+(c.relation===1?'tag-acc':'tag-ok')+'">关系'+c.relation+'</span></td>'+
+            '<td>'+esc(c.category||'单一子件')+'</td></tr>';
+    });
+    if(!dlist.length) h4 += '<tr><td colspan="9" class="mut">（无实际消耗）</td></tr>';
+    h4 += '</tbody>';
+    cdt.innerHTML = h4;
+
+    // consumption table
+    var ct = $('consTable');
+    var h2 = '<thead><tr><th>仓库</th><th>子件</th><th class="r">消耗</th><th class="r">剩余</th></tr></thead><tbody>';
+    res.consumption.forEach(function(c){
+      h2 += '<tr><td>'+esc(c.warehouse)+'</td><td>'+esc(c.child)+'</td>'+
+            '<td class="r">'+fmt(c.used)+'</td><td class="r">'+fmt(c.remaining)+'</td></tr>';
+    });
+    h2 += '</tbody>';
+    ct.innerHTML = h2;
+
+    // slot detail table
+    var st = $('slotTable');
+    // 口径A：剩余库存 = 该(仓库+SKU)被所有父件消耗后的全局剩余；未被消耗则取初始库存
+    var remainMap = new Map();
+    (res.consumption||[]).forEach(function(c){
+      remainMap.set(c.warehouse+'||'+c.child, c.remaining);
+    });
+    function slotRemain(wh, child, initInv){
+      var v = remainMap.get(wh+'||'+child);
+      return (v==null) ? initInv : v;
+    }
+    var h3 = '<thead><tr><th>仓库</th><th>父件</th><th>slot</th><th>子件(主/替代)</th><th class="r">配比</th><th class="r">库存</th><th class="r">转化系数</th><th class="r">slot容量</th><th class="r">剩余库存</th></tr></thead><tbody>';
+    res.results.forEach(function(r){
+      r.slots.forEach(function(s){
+        s.children.forEach(function(ch,i){
+          h3 += '<tr><td>'+(i===0?esc(r.warehouse):'')+'</td><td>'+(i===0?esc(r.parent):'')+'</td><td>'+(i===0?esc(s.slotKey):'')+'</td>'+
+                '<td>'+esc(ch.child)+(ch.isPrimary?' <span class="pill">主</span>':' <span class="pill">替代(配比'+fmt(ch.repl)+')</span>')+'</td>'+
+                '<td class="r">'+fmt(ch.ratio)+'</td>'+
+                '<td class="r">'+fmt(ch.inv)+'</td><td class="r">1</td>'+
+                '<td class="r">'+(i===0?s.cap:'')+'</td>'+
+                '<td class="r">'+fmt(slotRemain(r.warehouse, ch.child, ch.inv))+'</td></tr>';
+        });
+      });
+    });
+    h3 += '</tbody>';
+    st.innerHTML = h3;
+
+    // warnings
+    $('warnBox').innerHTML = res.warnings.length
+      ? '<span class="tag tag-warn">提示</span>'+res.warnings.map(esc).join('；')
+      : '<span class="tag tag-ok">正常</span> 无异常提示';
+  }
+
+  function fmt(n){ if(n==null) return ''; var v=Math.round(n*100)/100; return v; }
+
+  function buildCsv(res){
+    var lines = [];
+    lines.push('仓库,父件,销量,需求,组装量,缺口,关系类别');
+    res.results.forEach(function(r){
+      lines.push([r.warehouse,r.parent,r.sales,r.demand,r.assembled,r.shortfall,(r.category||'单一子件')].map(csvCell).join(','));
+    });
+    lines.push('');
+    lines.push('父件实际消耗明细（实际组成套消耗的子件：实际消耗 = 覆盖套数 × 该子件配比；按关系1/2 拆分）');
+    lines.push('仓库,父件,子件,类型,配比,覆盖套数,实际消耗,关系,类别');
+    (res.consumptionDetail||[]).forEach(function(c){
+      lines.push([c.warehouse,c.parent,c.child,(c.isPrimary?'主件':'替代件'),c.ratio,c.setsCovered,c.used,'关系'+(c.relation||1),(c.category||'单一子件')].map(csvCell).join(','));
+    });
+    lines.push('');
+    lines.push('库存消耗明细');
+    lines.push('仓库,子件,消耗,剩余');
+    res.consumption.forEach(function(c){
+      lines.push([c.warehouse,c.child,c.used,c.remaining].map(csvCell).join(','));
+    });
+    lines.push('');
+    lines.push('各父件 slot 容量（按初始库存测算，含可替换子件合并；子件配比取C列、替换组主件配比取备注换配比）');
+    lines.push('仓库,父件,slot,slot容量,配比,子件,库存,转化系数,剩余库存');
+    // 口径A：剩余库存 = 该(仓库+SKU)被所有父件消耗后的全局剩余；未被消耗则取初始库存
+    var remainMapCsv = new Map();
+    (res.consumption||[]).forEach(function(c){
+      remainMapCsv.set(c.warehouse+'||'+c.child, c.remaining);
+    });
+    res.results.forEach(function(r){
+      r.slots.forEach(function(s){
+        s.children.forEach(function(ch,i){
+          var _rem = remainMapCsv.get(r.warehouse+'||'+ch.child);
+          lines.push([
+            i===0?r.warehouse:'',
+            i===0?r.parent:'',
+            i===0?s.slotKey:'',
+            i===0?s.cap:'',
+            ch.ratio,
+            ch.child+(ch.isPrimary?'':'(替代件)'),
+            ch.inv,
+            1,
+            (_rem==null?ch.inv:_rem)
+          ].map(csvCell).join(','));
+        });
+      });
+    });
+    return lines.join('\r\n');
+  }
+
+  // 导出用：把「本应是数字」的文本转为数字，便于 Excel 直接计算/透视
+  //   纯数字编码(父件/子件)与数量 → 数字；空值 → null；文本(仓库/slot/类型/类别)保持文本
+  function xnum(v){
+    if(v===null||v===undefined||v==='') return null;
+    if(typeof v==='number') return isFinite(v) ? v : null;
+    var s=String(v).trim();
+    if(s==='') return null;
+    if(/^-?\d+(\.\d+)?$/.test(s)) return Number(s);
+    return v;
+  }
+
+  // CSV 单元格：数字/纯数字文本不加引号（便于 Excel 识别为数值），其余文本加引号
+  function csvCell(x){
+    if(x===null||x===undefined||x==='') return '';
+    if(typeof x==='number') return isFinite(x)?String(x):'';
+    var s=String(x);
+    if(/^-?\d+(\.\d+)?$/.test(s)) return s;
+    return '"'+s.replace(/"/g,'""')+'"';
+  }
+
+  $('btnCsv').addEventListener('click', function(){
+    if(!LAST) return;
+    var csv = buildCsv(LAST);
+    var blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8'});
+    downloadBlob(blob, '组装量结果.csv');
+  });
+  $('btnXlsx').addEventListener('click', function(){
+    if(!LAST) return;
+    if(typeof XLSX==='undefined'){ alert('XLSX 组件未加载（可能离线），请用导出CSV。'); return; }
+    var wb = XLSX.utils.book_new();
+    var resRows = [['仓库','父件','销量','需求','组装量','缺口','关系类别']];
+    LAST.results.forEach(function(r){ resRows.push([r.warehouse,xnum(r.parent),xnum(r.sales),xnum(r.demand),xnum(r.assembled),xnum(r.shortfall),(r.category||'单一子件')]); });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resRows), '组装结果');
+    var cdRows = [['仓库','父件','子件','类型','配比','覆盖套数','实际消耗','关系','类别']];
+    (LAST.consumptionDetail||[]).forEach(function(c){ cdRows.push([c.warehouse,xnum(c.parent),xnum(c.child),(c.isPrimary?'主件':'替代件'),xnum(c.ratio),xnum(c.setsCovered),xnum(c.used),'关系'+(c.relation||1),(c.category||'单一子件')]); });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(cdRows), '父件消耗明细');
+    var consRows = [['仓库','子件','消耗','剩余']];
+    LAST.consumption.forEach(function(c){ consRows.push([c.warehouse,xnum(c.child),xnum(c.used),xnum(c.remaining)]); });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(consRows), '库存消耗');
+    var slotRows = [['仓库','父件','slot','slot容量','配比','子件','库存','转化系数','剩余库存']];
+    // 口径A：剩余库存 = 该(仓库+SKU)被所有父件消耗后的全局剩余；未被消耗则取初始库存
+    var remainMapXlsx = new Map();
+    (LAST.consumption||[]).forEach(function(c){
+      remainMapXlsx.set(c.warehouse+'||'+c.child, c.remaining);
+    });
+    LAST.results.forEach(function(r){
+      r.slots.forEach(function(s){
+        s.children.forEach(function(ch,i){
+          var _rem = remainMapXlsx.get(r.warehouse+'||'+ch.child);
+          slotRows.push([
+            i===0?r.warehouse:null,
+            i===0?xnum(r.parent):null,
+            i===0?s.slotKey:null,
+            i===0?s.cap:null,
+            xnum(ch.repl),                        // 配比（ch.ratio 不存在，repl 即各子件配比）
+            xnum(ch.child),                       // 子件编码纯数字（去后缀，避免整列变文本）
+            xnum(ch.inv),
+            1,
+            xnum(_rem==null?ch.inv:_rem)
+          ]);
+        });
+      });
+    });
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(slotRows), '各父件slot容量');
+    XLSX.writeFile(wb, '组装量结果.xlsx');
+  });
+
+  function downloadBlob(blob, name){
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 100);
+  }
+
+  // ★ 打开页面【不自动计算】——结果区保持隐藏，
+  //   必须用户导入 Excel/CSV 后点「解析并计算」才出现结果。
+  //   （2026-10-23 用户明确要求：避免一进页面就看到示例数据结果，误以为已算自己的数据）
+  //   注：sample_data.js 导出的是 SAMPLE_DATA = {bom, demand, inventory}（顶层即示例数据），
+  //   同时兼容 {SAMPLE:{...}} 包装形式；此处不再自动调用，保留文件仅供按需引用。
+  window.addEventListener('load', function(){
+    // 确保结果区隐藏（防止任何残留渲染）
+    var rp = document.getElementById('resultPanel');
+    if (rp) rp.style.display = 'none';
+  });
+})();
+</script>
+</body>
+</html>

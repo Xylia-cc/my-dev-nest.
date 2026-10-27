@@ -1,0 +1,14 @@
+{
+  "name": "assembly-calculator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "分仓组装量计算器 —— 网页版 BOM 组装量/消耗明细计算工具",
+  "scripts": {
+    "build": "node publish/build_gh.js",
+    "publish": "bash publish_gh.sh",
+    "test": "node assembly_calculator/test_engine.js && node assembly_calculator/test_rule2.js && node assembly_calculator/test_rule3.js && node assembly_calculator/test_category.js"
+  },
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
+}
