@@ -70,6 +70,7 @@
 4. `bash` 里 `node -e` 的多层引号易被吃掉 → 长脚本写成 `.js` 文件再执行。
 5. **删除文件被 safe-delete 拦截** → 用 `mv` 移到 `.workbuddy/tmp/`。
 6. **页面 >2MB 时 Chrome headless dump 为空** → 大文件测试改用 XHR 拉同源小文件，别内联 base64。
+7. ⚠️ **headless 虚拟时间与 async/await 不兼容**：`--virtual-time-budget` 快进定时器，但 `btnCalc` 的 async handler 里 `await readExcelFile()` 之后的 Promise 链跟不上 → dump 时结果区仍 HIDDEN，像"页面坏了"。**排查法**：绕过 UI 直接在页面里调 `AssemblyEngine.compute()`，若引擎正常则是测试方法问题而非产品缺陷。
 
 ## Bug 修复记录（精简）
 | 日期 | 现象 | 根因 | 修复 |
@@ -89,8 +90,10 @@
 | 10-27 | **1743969 关系2 少一个子件**（24行 vs 其他25行） | 批次2 硬编码纯主件（`priUsed2=sets2*priRatio`），而 altMaxSets 只取「容量>rel1 的组中最小值」→ 容量大的组替代件仍充足却被强制走主件，主件库存0时整组消失 | 批次2 改为「先用本组替代件，不够再主件」；补批次2 替代件明细输出与库存扣减 |
 
 ## 部署与验证
-- 沙箱部署：`workbuddy_cloudstudio_deploy`，链接稳定但**回收即失效**，且分享给外部人需平台令牌（403「链接不完整」）→ 长期方案仍需 GitHub Pages（待用户提供仓库+认证）或直接发**离线单文件版**。
-- **离线单文件版**（零外部依赖、可双击打开、可微信传）：`分仓组装量计算器-离线版-20261023.html`（约 976KB）。
-- ★ **单文件版构建铁律**（`publish/build6.js`）：第三方库源码含 HTML 标签字面量时，必须包成 JSON 字符串字面量并把所有 `<` 转成 `\u003c`，运行时 `eval()` 执行。⚠️ 不可写 `JSON.parse(...)`（`JSON.stringify` 的结果已是 JS 字符串字面量，再 parse 会报 `Unexpected token '/'`）。
-- 回归测试：`test_engine.js` / `test_rule2.js` / `test_rule3.js` / `test_category.js` 全部通过方可发布。
+- ⚠️ **沙箱链接无法对外分享**：`*.app.workbuddy.host` 对外访问返回 403「链接不完整」，令牌由服务端绑定登录会话（枚举 30 种 query 参数名全部 403）→ 只有创建者自己能开。**对外分发必须用 GitHub Pages 或直接发离线单文件版**。
+- **GitHub Pages 自动同步（已就绪）**：`.github/workflows/publish.yml`（push main 即自动部署）+ `publish/build_gh.js`（跨平台构建，8 项自检）+ `publish_gh.sh`（一键发布）。仓库已 git init（74 文件，2 提交）。用户侧一次性配置：建空仓库 → `git remote add origin ...` → Settings→Pages→Source 选 GitHub Actions → `bash publish_gh.sh`（凭据由 git 弹出，不经对话）。地址永久不变。
+- 沙箱部署：`workbuddy_cloudstudio_deploy`，仅供自己预览。
+- **离线单文件版**（零外部依赖、可双击打开、可微信传）：`site/分仓组装量计算器-离线版.html`（约 979KB）。
+- ★ **单文件版构建铁律**（`publish/build_gh.js`）：第三方库源码含 HTML 标签字面量时，必须包成 JSON 字符串字面量并把所有 `<` 转成 `\u003c`，运行时 `eval()` 执行。⚠️ 不可写 `JSON.parse(...)`（`JSON.stringify` 的结果已是 JS 字符串字面量，再 parse 会报 `Unexpected token '/'`）。
+- 回归测试：`test_engine.js` / `test_rule2.js` / `test_rule3.js` / `test_category.js` 全部通过方可发布（或 `npm test`）。
 - 全量校验三指标须为 0：负剩余、对账不符（剩余+消耗≠库存表原值）、超库存、脏行（覆盖0却有消耗）。
