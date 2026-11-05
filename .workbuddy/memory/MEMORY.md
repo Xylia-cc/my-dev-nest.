@@ -90,10 +90,11 @@
 | 10-27 | **1743969 关系2 少一个子件**（24行 vs 其他25行） | 批次2 硬编码纯主件（`priUsed2=sets2*priRatio`），而 altMaxSets 只取「容量>rel1 的组中最小值」→ 容量大的组替代件仍充足却被强制走主件，主件库存0时整组消失 | 批次2 改为「先用本组替代件，不够再主件」；补批次2 替代件明细输出与库存扣减 |
 
 ## 部署与验证
-- ⚠️ **沙箱链接无法对外分享**：`*.app.workbuddy.host` 对外访问返回 403「链接不完整」，令牌由服务端绑定登录会话（枚举 30 种 query 参数名全部 403）→ 只有创建者自己能开。**对外分发必须用 GitHub Pages 或直接发离线单文件版**。
-- **GitHub Pages 自动同步（已就绪）**：`.github/workflows/publish.yml`（push main 即自动部署）+ `publish/build_gh.js`（跨平台构建，8 项自检）+ `publish_gh.sh`（一键发布）。仓库已 git init（74 文件，2 提交）。用户侧一次性配置：建空仓库 → `git remote add origin ...` → Settings→Pages→Source 选 GitHub Actions → `bash publish_gh.sh`（凭据由 git 弹出，不经对话）。地址永久不变。
+- ⚠️ **沙箱链接无法对外分享（已读源码确认，勿再猜参数）**：分享链接由服务端 PaaS `/workspaces/{spaceKey}/links` 生成（见 `app.asar.unpacked/resources/builtin-skills/cloudstudio-deploy/scripts/deploy.js` 的 `getShareLink`），令牌随平台会话注入，工具层拿不到也补不齐 → **仅在 WorkBuddy 内嵌预览器可用**，外部一律 403「链接不完整」。对外分享必须用外部托管或发离线单文件版。
+- **GitHub Pages 全自动发布（已就绪）**：`bash publish/github_guide.sh` → 首次粘贴 PAT（勾 repo+workflow，存 `~/.workbuddy/github_token.txt`），之后每次发版一条命令 → `publish/github_auto_publish.js` 完成「API 建公开仓库 → git push（token 走一次性 http.extraheader，不落盘）→ API 开 Pages → 输出永久地址」。**GitHub 通道实测全部可达**（api/codeload/git 协议/github.io 均通）。另有 `.github/workflows/publish.yml`（push main 即自动部署）+ `publish/build_gh.js`（8 项自检）。
+- **局域网临时分享**：`bash publish/serve_lan.sh` → `http://<本机IP>:8899/`（本机 192.168.8.94），同事同网段可直接开，需本机常开。
 - 沙箱部署：`workbuddy_cloudstudio_deploy`，仅供自己预览。
-- **离线单文件版**（零外部依赖、可双击打开、可微信传）：`site/分仓组装量计算器-离线版.html`（约 979KB）。
+- **离线单文件版**（零外部依赖、可双击打开、可微信传）：`site/分仓组装量计算器-离线版.html`（977KB）。
 - ★ **单文件版构建铁律**（`publish/build_gh.js`）：第三方库源码含 HTML 标签字面量时，必须包成 JSON 字符串字面量并把所有 `<` 转成 `\u003c`，运行时 `eval()` 执行。⚠️ 不可写 `JSON.parse(...)`（`JSON.stringify` 的结果已是 JS 字符串字面量，再 parse 会报 `Unexpected token '/'`）。
 - 回归测试：`test_engine.js` / `test_rule2.js` / `test_rule3.js` / `test_category.js` 全部通过方可发布（或 `npm test`）。
 - 全量校验三指标须为 0：负剩余、对账不符（剩余+消耗≠库存表原值）、超库存、脏行（覆盖0却有消耗）。
