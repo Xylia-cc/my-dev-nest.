@@ -91,12 +91,13 @@
 
 ## 部署与验证
 - ⚠️ **沙箱链接无法对外分享（已读源码确认，勿再猜参数）**：分享链接由服务端 PaaS `/workspaces/{spaceKey}/links` 生成（见 `app.asar.unpacked/resources/builtin-skills/cloudstudio-deploy/scripts/deploy.js` 的 `getShareLink`），令牌随平台会话注入，工具层拿不到也补不齐 → **仅在 WorkBuddy 内嵌预览器可用**，外部一律 403「链接不完整」。对外分享必须用外部托管或发离线单文件版。
-- **GitHub Pages 全自动发布（已就绪）**：remote = `https://github.com/Xylia-cc/my-dev-nest..git`（★ 仓库名**带尾点** `my-dev-nest.`，克隆地址是**两个点**），仓库已确认**公开**、默认分支 **main**、空仓库。发布三选一：`publish\一键发布.bat`（Windows 双击）/ `bash publish/github_guide.sh`（终端交互）/ `bash publish/github_push.sh`（token 已存时非交互）。token 需 PAT 勾 **repo + workflow**，存 `~/.workbuddy/github_token.txt`。`publish/github_auto_publish.js` 完成「检查/建仓库 → 自动确保公开 → 构建 → git push（token 走一次性 http.extraheader，不落盘）→ 开 Pages → 从 API 读真实地址」。另有 `.github/workflows/publish.yml`（push main 即自动部署）+ `publish/build_gh.js`（8 项自检）。
-  - 最终地址：`https://xylia-cc.github.io/my-dev-nest./
-  - ★ **仓库名拿不准时，先列用户公开仓库**：`GET /users/<user>/repos` 一次看清全部，不要只猜名字（本次 `my-dev-nest` 404 而实际是 `my-dev-nest.`）。
-  - ★ **私有仓库无法公开访问 Pages**（免费版直接不支持，Pro 版访问需登录自己账号）。
+- **GitHub Pages 已正式发布 ✅（2026-11-05）**：**分享链接 = `https://xylia-cc.github.io/my-dev-nest./`**（仓库 `Xylia-cc/my-dev-nest.` 公开 / 分支 main / `build_type=workflow`）。发版一条命令：`bash publish/github_push.sh`（或 Windows 双击 `publish\一键发布.bat`）。token 存 `~/.workbuddy/github_token.txt`（600权限，不在仓库）。
+  - ★ **Pages 部署模式互斥坑**：用 `source:{branch}` 开启 → `build_type=legacy`（从分支根目录发布），但本项目用 `upload-pages-artifact`+`deploy-pages`（Actions 模式）→ 仓库根目录无 index.html → **线上返回 GitHub 的 404 页（HTTP 200 但内容是 404）**。必须 `build_type='workflow'`；已存在 legacy 时 PATCH 改，不支持则 DELETE+POST+rerun。已写进 `github_auto_publish.js`。
+  - ★ 仓库名拿不准时，先列用户公开仓库：`GET /users/<user>/repos`（本次实际是 `my-dev-nest.` 带尾点，猜 `my-dev-nest` 会 404）。
+  - ★ 私有仓库无法公开访问 Pages（免费版直接不支持，Pro 版访问需登录自己账号）。
   - ⚠️ **GitHub 连接时通时断**：git 连不上时用 `GIT_CURL_VERBOSE=1 git ls-remote <url>` 判断（TLS 成功+401=认证问题；超时=网络抖动，**先重试**别下"被墙"结论）。
   - ⚠️ **git 的 GUI 弹窗在此环境不可用**（`/dev/tty: No such device`）→ 必须用 token + extraheader 的非交互方式。GitHub Device Flow 端点被重置（ECONNRESET），走不通。
+  - ⚠️ `bash` 环境缺 `sleep`/`chmod`/`timeout` 命令 → 用 `node -e` 的 setTimeout 替代。
 - **局域网临时分享**：`bash publish/serve_lan.sh` → `http://<本机IP>:8899/`（本机 192.168.8.94），同事同网段可直接开，需本机常开。
 - 沙箱部署：`workbuddy_cloudstudio_deploy`，仅供自己预览。
 - **离线单文件版**（零外部依赖、可双击打开、可微信传）：`site/分仓组装量计算器-离线版.html`（977KB）。
