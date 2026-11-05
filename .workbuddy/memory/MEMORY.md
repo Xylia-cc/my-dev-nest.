@@ -91,7 +91,10 @@
 
 ## 部署与验证
 - ⚠️ **沙箱链接无法对外分享（已读源码确认，勿再猜参数）**：分享链接由服务端 PaaS `/workspaces/{spaceKey}/links` 生成（见 `app.asar.unpacked/resources/builtin-skills/cloudstudio-deploy/scripts/deploy.js` 的 `getShareLink`），令牌随平台会话注入，工具层拿不到也补不齐 → **仅在 WorkBuddy 内嵌预览器可用**，外部一律 403「链接不完整」。对外分享必须用外部托管或发离线单文件版。
-- **GitHub Pages 全自动发布（已就绪）**：`bash publish/github_guide.sh` → 首次粘贴 PAT（勾 repo+workflow，存 `~/.workbuddy/github_token.txt`），之后每次发版一条命令 → `publish/github_auto_publish.js` 完成「API 建公开仓库 → git push（token 走一次性 http.extraheader，不落盘）→ API 开 Pages → 输出永久地址」。**GitHub 通道实测全部可达**（api/codeload/git 协议/github.io 均通）。另有 `.github/workflows/publish.yml`（push main 即自动部署）+ `publish/build_gh.js`（8 项自检）。
+- **GitHub Pages 全自动发布（已就绪）**：remote 已指向 `https://github.com/Xylia-cc/my-dev-nest.git`，分支 **main**。发布：`bash publish/github_guide.sh`（首次粘贴 PAT，勾 **repo + workflow**，存 `~/.workbuddy/github_token.txt`；也支持 `<repo> <token>` 传参）或 `bash publish/github_push.sh`（纯非交互，读已存 token）→ `publish/github_auto_publish.js` 完成「API 建仓库 → git push（token 走一次性 http.extraheader，不落盘）→ API 开 Pages → 输出永久地址」。另有 `.github/workflows/publish.yml`（push main 即自动部署）+ `publish/build_gh.js`（8 项自检）。
+  - ★ **仓库必须是 Public**：私有仓库 GitHub 免费版不支持 Pages；Pro 版可开但访问需登录自己账号，不适合分享。
+  - ⚠️ **GitHub 连接时通时断**：git 连不上时用 `GIT_CURL_VERBOSE=1 git ls-remote <url>` 判断（TLS 成功+401=认证问题；超时=网络抖动，**先重试**别下"被墙"结论）。
+  - ⚠️ **git 的 GUI 弹窗在此环境不可用**（`/dev/tty: No such device`）→ 必须用 token + extraheader 的非交互方式。GitHub Device Flow 端点被重置（ECONNRESET），走不通。
 - **局域网临时分享**：`bash publish/serve_lan.sh` → `http://<本机IP>:8899/`（本机 192.168.8.94），同事同网段可直接开，需本机常开。
 - 沙箱部署：`workbuddy_cloudstudio_deploy`，仅供自己预览。
 - **离线单文件版**（零外部依赖、可双击打开、可微信传）：`site/分仓组装量计算器-离线版.html`（977KB）。
