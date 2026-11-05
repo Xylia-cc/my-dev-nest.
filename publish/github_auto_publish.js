@@ -137,17 +137,19 @@ function git(args, opts) {
     git(['-c', 'http.extraheader=' + authHeader, 'push', '-u', 'origin', 'HEAD:main']);
 
     // ---- 4. 开启 Pages ----
-    console.log('[4/4] 开启 GitHub Pages...');
+    console.log('[4/4] 开启 GitHub Pages（Actions 模式）...');
     let pageUrl = null;
     try {
+      // ★ 直接用 build_type=workflow —— 与 .github/workflows/publish.yml 配套。
+      //   若用 source:{branch} 会变成 legacy 模式，线上会返回 404 页。
       await api('POST', '/repos/' + me.login + '/' + REPO + '/pages', {
-        source: { branch: 'main', path: '/' }
+        build_type: 'workflow'
       });
-      console.log('    ✅ Pages 已开启（source=branch main）');
+      console.log('    ✅ Pages 已开启（build_type=workflow）');
     } catch (e) {
       const msg = String(e.message);
-      if (msg.indexOf('already exists') >= 0) {
-        console.log('    Pages 已开启');
+      if (msg.indexOf('already exists') >= 0 || msg.indexOf('already enabled') >= 0) {
+        console.log('    ✅ Pages 已开启（之前已启用）');
       } else if (msg.indexOf('must be enabled') >= 0 || msg.indexOf('not enabled') >= 0) {
         console.log('    ⚠️  Pages 功能未在该仓库启用，请手动开启：');
         console.log('        仓库 → Settings → Pages → Source 选 GitHub Actions');
@@ -156,6 +158,39 @@ function git(args, opts) {
         console.log('        请手动开启：仓库 → Settings → Pages → Source 选 GitHub Actions');
       }
     }
+
+    // ★ 关键：确保 build_type = workflow（Actions 模式）
+    //   本项目用 .github/workflows/publish.yml + upload-pages-artifact 部署，
+    //   必须是 workflow 模式。若误用 branch 模式（legacy），
+    //   Pages 会从 main 分支根目录发布 —— 而仓库根目录没有 index.html，
+    //   线上会返回 GitHub 的 404 页面（HTTP 200 但内容是 404 页）。
+    try {
+      const pg0 = await api('GET', '/repos/' + me.login + '/' + REPO + '/pages');
+      if (pg0 && pg0.build_type && pg0.build_type !== 'workflow') {
+        console.log('    ⚠️  检测到 build_type=' + pg0.build_type + '（legacy 模式），切换为 workflow...');
+        let ok = false;
+        try {
+          await api('PATCH', '/repos/' + me.login + '/' + REPO + '/pages', { build_type: 'workflow' });
+          ok = true;
+        } catch (e2) {
+          // PATCH 不支持时：先删后建
+          await api('DELETE', '/repos/' + me.login + '/' + REPO + '/pages');
+          await api('POST', '/repos/' + me.login + '/' + REPO + '/pages', { build_type: 'workflow' });
+          ok = true;
+        }
+        if (ok) {
+          console.log('    ✅ 已切换为 workflow 模式（Actions 部署）');
+          // 触发一次部署
+          try {
+            const rl = await api('GET', '/repos/' + me.login + '/' + REPO + '/actions/workflows/publish.yml/runs');
+            const r0 = (rl && rl.workflow_runs && rl.workflow_runs[0]);
+            if (r0) await api('POST', '/repos/' + me.login + '/' + REPO + '/actions/runs/' + r0.id + '/rerun', {});
+          } catch (e3) { /* 忽略 */ }
+        }
+      } else if (pg0) {
+        console.log('    部署模式：workflow ✅（Actions 自动部署）');
+      }
+    } catch (e) { /* Pages 未就绪时忽略 */ }
 
     // 从 API 查真实地址（仓库名含特殊字符时，自己拼的 URL 可能不对）
     try {
