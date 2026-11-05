@@ -17,7 +17,7 @@
 set -e
 cd "$(dirname "$0")/.."
 
-REPO=${1:-my-dev-nest}
+REPO=${1:-my-dev-nest.}
 TOKEN_FILE="$HOME/.workbuddy/github_token.txt"
 
 # ---- 情况 A：命令行已带 token ----

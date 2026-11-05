@@ -79,13 +79,12 @@ function git(args, opts) {
     const me = await api('GET', '/user');
     console.log('    登录账号: ' + me.login);
 
-    // ---- 1. 建仓库 ----
-    console.log('[1/4] 创建仓库 ' + REPO + ' ...');
-    let repoExists = false;
+    // ---- 1. 确保仓库存在且为公开 ----
+    console.log('[1/4] 检查仓库 ' + REPO + ' ...');
+    let repoInfo = null;
     try {
-      await api('GET', '/repos/' + me.login + '/' + REPO);
-      repoExists = true;
-      console.log('    仓库已存在，跳过创建');
+      repoInfo = await api('GET', '/repos/' + me.login + '/' + REPO);
+      console.log('    仓库已存在');
     } catch (e) {
       await api('POST', '/user/repos', {
         name: REPO,
@@ -96,6 +95,21 @@ function git(args, opts) {
         has_wiki: false
       });
       console.log('    ✅ 创建成功（公开仓库）');
+      repoInfo = await api('GET', '/repos/' + me.login + '/' + REPO);
+    }
+
+    // ★ 私有仓库无法公开访问 Pages（免费版直接不支持，Pro 版访问需登录自己账号）
+    if (repoInfo && repoInfo.private) {
+      console.log('    ⚠️  仓库当前是【私有】，正在改为公开（Pages 分享必须公开）...');
+      try {
+        await api('PATCH', '/repos/' + me.login + '/' + REPO, { private: false });
+        console.log('    ✅ 已改为公开');
+      } catch (e) {
+        console.log('    ❌ 自动改公开失败：' + e.message);
+        console.log('       请手动改：仓库 → Settings → General → 取消勾选 Private');
+      }
+    } else if (repoInfo) {
+      console.log('    可见性：公开 ✅（Pages 可直接访问）');
     }
 
     // ---- 2. 构建 ----
@@ -124,21 +138,32 @@ function git(args, opts) {
 
     // ---- 4. 开启 Pages ----
     console.log('[4/4] 开启 GitHub Pages...');
+    let pageUrl = null;
     try {
       await api('POST', '/repos/' + me.login + '/' + REPO + '/pages', {
         source: { branch: 'main', path: '/' }
       });
-      console.log('    ✅ Pages 已开启（branch=main）');
+      console.log('    ✅ Pages 已开启（source=branch main）');
     } catch (e) {
-      if (String(e.message).indexOf('already exists') >= 0) {
+      const msg = String(e.message);
+      if (msg.indexOf('already exists') >= 0) {
         console.log('    Pages 已开启');
+      } else if (msg.indexOf('must be enabled') >= 0 || msg.indexOf('not enabled') >= 0) {
+        console.log('    ⚠️  Pages 功能未在该仓库启用，请手动开启：');
+        console.log('        仓库 → Settings → Pages → Source 选 GitHub Actions');
       } else {
-        console.log('    ⚠️  未能自动开启 Pages：' + e.message);
-        console.log('    请手动开启：仓库 → Settings → Pages → Source 选 GitHub Actions');
+        console.log('    ⚠️  未能自动开启 Pages：' + msg);
+        console.log('        请手动开启：仓库 → Settings → Pages → Source 选 GitHub Actions');
       }
     }
 
-    const pageUrl = 'https://' + me.login + '.github.io/' + REPO + '/';
+    // 从 API 查真实地址（仓库名含特殊字符时，自己拼的 URL 可能不对）
+    try {
+      const pg = await api('GET', '/repos/' + me.login + '/' + REPO + '/pages');
+      if (pg && pg.html_url) pageUrl = pg.html_url;
+    } catch (e) { /* 未开启时查不到，用拼接兜底 */ }
+    if (!pageUrl) pageUrl = 'https://' + me.login + '.github.io/' + REPO + '/';
+
     console.log('');
     console.log('============================================');
     console.log(' ✅ 发布完成');
@@ -148,7 +173,7 @@ function git(args, opts) {
     console.log('');
     console.log(' ★ 首次可能需要 1-3 分钟才生效（Actions 在构建）');
     console.log(' ★ 以后每次发版只需：');
-    console.log('   node publish/github_auto_publish.js ' + REPO);
+    console.log('   bash publish/github_push.sh');
     console.log('============================================');
   } catch (e) {
     console.error('❌ 失败:', e.message);

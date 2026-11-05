@@ -15,7 +15,7 @@
 set -e
 cd "$(dirname "$0")/.."
 
-REPO=${1:-my-dev-nest}
+REPO=${1:-my-dev-nest.}
 TOKEN_FILE="$HOME/.workbuddy/github_token.txt"
 
 if [ ! -f "$TOKEN_FILE" ]; then
