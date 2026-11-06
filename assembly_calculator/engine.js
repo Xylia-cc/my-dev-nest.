@@ -555,10 +555,10 @@
           });
         });
 
-        // ── Phase 3: 计算实际组装量 ──
+        // ── 计算实例的实际组装量（Phase 3 主体；Phase 3.5 再分配时也要复用）──
         //    共享子件若 allocated 不足（含未分配=0），实际组装量受限于该子件
         //    ★ 替换组内多子件共享时，合并 allocated 计算（替代件+主件=整体slot容量）
-        theories.forEach(function (t) {
+        function calcKActual(t) {
           var k_actual = t.k_theory;
           t.inst.group.slots.forEach(function (slot) {
             var hasShared = slot.children.some(function (c) { return isShared(c.child); });
@@ -566,7 +566,7 @@
             if (slot.children.length > 1) {
               // 替换组：各子件分别折算套数后相加（不能先把库存相加再除）
               // ★ 共享子件取 allocated；非共享子件取 pool 库存（尚未扣减）
-              var maxSets = 0;
+              var sum = 0;
               slot.children.forEach(function (c) {
                 var avail;
                 if (isShared(c.child)) {
@@ -575,125 +575,195 @@
                   var pAlt = pool.get(wh + '||' + c.child);
                   avail = pAlt ? pAlt.qty : 0;
                 }
-                maxSets += c.ratio > 0 ? Math.floor(avail / c.ratio) : 0;
+                sum += c.ratio > 0 ? Math.floor(avail / c.ratio) : 0;
               });
-              if (maxSets < k_actual) k_actual = maxSets;
+              if (sum < k_actual) k_actual = sum;
             } else {
-              var c = slot.children[0];
-              var allocated = t.allocated.get(c.child) || 0;
-              var maxSets = c.ratio > 0 ? Math.floor(allocated / c.ratio) : 0;
-              if (maxSets < k_actual) k_actual = maxSets;
+              var c1 = slot.children[0];
+              var alloc1 = t.allocated.get(c1.child) || 0;
+              var ms1 = c1.ratio > 0 ? Math.floor(alloc1 / c1.ratio) : 0;
+              if (ms1 < k_actual) k_actual = ms1;
             }
           });
           t.k_actual = k_actual;
-        });
+          return k_actual;
+        }
+        theories.forEach(calcKActual);
 
-        // ── Phase 3.5: k_actual 被瓶颈限制后，释放多余共享库存给下一个能利用的父件 ──
-        //    逻辑：若某实例因非共享子件瓶颈导致 k_actual < 分到的共享子件套数，
-        //          则该共享子件多余部分（allocated - k_actual*ratio）回收，
-        //          按 childSales 降序分配给 k_actual > 0 且还能继续组装的实例。
+        // ── Phase 3.5: k_actual 被瓶颈限制后，释放多余共享库存给「能组」的父件 ──
+        //    逻辑：
+        //      1) 回收：某实例因瓶颈导致 k_actual < 分到的共享子件套数 → 多余部分释放回池
+        //      2) 再分配：把释放出来的库存给「拿到后确实能多组几套」的实例
+        //         ★ 关键：必须是【联合可行】——某实例拿到这个料后，它自己的其它 slot
+        //           也得凑得齐，否则给再多也组不出更多套（料锁在自己名下，挤掉真正能组的人）
+        //      3) 重算 k_actual；多轮迭代直到稳定（释放 → 再分配 → 重算）
         (function () {
-          var releasedByChild = new Map(); // child → 释放的库存量
+          var MAX_ROUND = 4;
 
-          // 1) 回收：k_actual 被瓶颈限制的实例，释放多余共享库存
-          theories.forEach(function (t) {
+          function freeOf(child) {
+            var p = pool.get(wh + '||' + child);
+            return p ? p.qty : 0;
+          }
+
+          function effectiveDemandOf(t) {
+            var ed = t.inst.totalDemand;
+            if (!isSupplierBatch && supplierAssembled.has(t.inst.parent)) {
+              ed = Math.max(0, ed - supplierAssembled.get(t.inst.parent));
+            }
+            return ed;
+          }
+
+          // 实例 t 假设能额外拿到 extra（Map child→额外量）时，最多能组多少套
+          //   共享子件：allocated + extra；非共享子件：pool（本就独享）
+          //   替换组 slot：各子件分别折算后相加（与 Phase1/Phase3 同口径）
+          function achievableSets(t, extra) {
+            var minSets = Infinity;
+            t.inst.group.slots.forEach(function (slot) {
+              var isGroup = slot.children.length > 1 || /^G:/.test(slot.slotKey);
+              var eff = 0;
+              slot.children.forEach(function (c) {
+                var qty;
+                if (isShared(c.child)) {
+                  qty = (t.allocated.get(c.child) || 0) + (extra ? (extra.get(c.child) || 0) : 0);
+                } else {
+                  qty = freeOf(c.child);
+                }
+                eff += isGroup ? Math.floor(qty / c.ratio) : (qty / c.ratio);
+              });
+              var cap = Math.floor(eff + 1e-9);
+              if (cap < minSets) minSets = cap;
+            });
+            return minSets === Infinity ? 0 : minSets;
+          }
+
+          // 实例 t 达到 N 套所需的共享子件增量 → Map child→{qty, ratio}
+          function needForSets(t, N) {
+            var need = new Map();
+            function add(child, qty, ratio) {
+              var cur = need.get(child);
+              if (!cur) { need.set(child, { qty: qty, ratio: ratio }); }
+              else { cur.qty += qty; }
+            }
+            t.inst.group.slots.forEach(function (slot) {
+              var isGroup = slot.children.length > 1 || /^G:/.test(slot.slotKey);
+              if (!isGroup) {
+                var c = slot.children[0];
+                if (!isShared(c.child)) return;
+                var cur = t.allocated.get(c.child) || 0;
+                var want = N * c.ratio;
+                if (want > cur) add(c.child, want - cur, c.ratio);
+              } else {
+                // 替换组：按「替代件优先」补足组内缺口
+                var capNow = 0;
+                slot.children.forEach(function (c) {
+                  var av = isShared(c.child)
+                    ? (t.allocated.get(c.child) || 0)
+                    : freeOf(c.child);
+                  capNow += c.ratio > 0 ? Math.floor(av / c.ratio) : 0;
+                });
+                var lack = N - capNow;
+                if (lack <= 0) return;
+                var ordered = slot.children.slice().sort(function (a, b) {
+                  return (a.isAlt ? 0 : 1) - (b.isAlt ? 0 : 1);
+                });
+                ordered.forEach(function (c) {
+                  if (lack <= 0) return;
+                  if (!isShared(c.child)) return;
+                  var cur2 = t.allocated.get(c.child) || 0;
+                  var free2 = freeOf(c.child);
+                  var canSets = c.ratio > 0
+                    ? Math.floor((cur2 + free2) / c.ratio) - Math.floor(cur2 / c.ratio)
+                    : 0;
+                  var give = Math.min(lack, canSets) * c.ratio;
+                  if (give > 0) { add(c.child, give, c.ratio); lack -= give; }
+                });
+              }
+            });
+            return need;
+          }
+
+          // 尝试给实例 t 补料（只在「拿到后能多组几套」时给）
+          function allocateTo(t) {
+            var ed = effectiveDemandOf(t);
+            if (t.k_actual >= ed) return false;
+
+            // 该实例能拿到的上限：假设它能取走池中所有共享料
+            var extra = new Map();
             t.inst.group.slots.forEach(function (slot) {
               slot.children.forEach(function (c) {
                 if (!isShared(c.child)) return;
-                var allocated = t.allocated.get(c.child) || 0;
-                var need = t.k_actual * c.ratio; // 实际需要
-                if (allocated > need) {
-                  var excess = allocated - need;
-                  t.allocated.set(c.child, need);
-                  releasedByChild.set(c.child, (releasedByChild.get(c.child) || 0) + excess);
-                  var pk2 = wh + '||' + c.child;
-                  var p = pool.get(pk2);
-                  if (p) p.qty += excess;
-                }
+                extra.set(c.child, freeOf(c.child));
               });
             });
-          });
+            var N = achievableSets(t, extra);
+            if (N > ed) N = ed;
+            // ★ 给再多也组不出更多套 → 不参与竞争（否则料被锁死，挤掉真正能组的父件）
+            if (N <= t.k_actual) return false;
 
-          // 2) 重新分配给 k_actual > 0 且还能继续组装的实例
-          releasedByChild.forEach(function (releasedQty, child) {
-            if (releasedQty <= 0) return;
+            var need = needForSets(t, N);
+            var gave = false;
+            need.forEach(function (info, child) {
+              var free = freeOf(child);
+              var take = Math.min(info.qty, free);
+              take = Math.floor(take / info.ratio) * info.ratio;
+              if (take <= 0) return;
+              var p = pool.get(wh + '||' + child);
+              if (!p || p.qty < take) return;
+              p.qty -= take;
+              t.allocated.set(child, (t.allocated.get(child) || 0) + take);
+              gave = true;
+            });
+            return gave;
+          }
 
-            var needy = [];
-            theories.forEach(function (t, idx) {
-              var inst = t.inst;
-              var totalDemand = inst.totalDemand;
-              var effectiveDemand = totalDemand;
-              if (!isSupplierBatch && supplierAssembled.has(inst.parent)) {
-                effectiveDemand = Math.max(0, totalDemand - supplierAssembled.get(inst.parent));
-              }
-              if (t.k_theory <= 0) return; // Phase1 就不齐套（独占子件瓶颈），不接收
-              if (t.k_actual >= effectiveDemand) return; // 已满足
-
-              var needRatio = 0;
+          for (var round = 0; round < MAX_ROUND; round++) {
+            // 1) 回收：k_actual 被瓶颈限制的实例，释放多余共享库存
+            var released = 0;
+            theories.forEach(function (t) {
               t.inst.group.slots.forEach(function (slot) {
                 slot.children.forEach(function (c) {
-                  if (c.child === child) needRatio = c.ratio;
-                });
-              });
-              if (needRatio <= 0) return;
-
-              needy.push({
-                tIdx: idx,
-                childSales: t.inst.sales * needRatio,
-                ratio: needRatio,
-                needSets: effectiveDemand - t.k_actual // 还能再组装多少套
-              });
-            });
-
-            if (needy.length === 0) return;
-            needy.sort(function (a, b) { return b.childSales - a.childSales; });
-
-            var pk2 = wh + '||' + child;
-            var p = pool.get(pk2);
-            var remaining = releasedQty;
-            needy.forEach(function (n) {
-              if (remaining <= 0) return;
-              var t = theories[n.tIdx];
-              var want = n.needSets * n.ratio;
-              var take = Math.min(want, remaining);
-              take = Math.floor(take / n.ratio) * n.ratio;
-              if (take > 0) {
-                t.allocated.set(child, (t.allocated.get(child) || 0) + take);
-                remaining -= take;
-                if (p) p.qty -= take;
-              }
-            });
-          });
-
-          // 3) 重新计算 k_actual（替换组合并计算）
-          theories.forEach(function (t) {
-            var k_actual = t.k_theory;
-            t.inst.group.slots.forEach(function (slot) {
-              var hasShared = slot.children.some(function (c) { return isShared(c.child); });
-              if (!hasShared) return;
-              if (slot.children.length > 1) {
-                // 共享子件取 allocated；非共享子件取 pool 库存（各子件分别折算再相加）
-                var maxSets = 0;
-                slot.children.forEach(function (c) {
-                  var avail;
-                  if (isShared(c.child)) {
-                    avail = t.allocated.get(c.child) || 0;
-                  } else {
-                    var pAlt = pool.get(wh + '||' + c.child);
-                    avail = pAlt ? pAlt.qty : 0;
+                  if (!isShared(c.child)) return;
+                  var allocated = t.allocated.get(c.child) || 0;
+                  var need = t.k_actual * c.ratio;
+                  if (allocated > need) {
+                    var excess = allocated - need;
+                    t.allocated.set(c.child, need);
+                    var pk2 = wh + '||' + c.child;
+                    var p = pool.get(pk2);
+                    if (p) p.qty += excess;
+                    released += excess;
                   }
-                  maxSets += c.ratio > 0 ? Math.floor(avail / c.ratio) : 0;
                 });
-                if (maxSets < k_actual) k_actual = maxSets;
-              } else {
-                var c = slot.children[0];
-                var allocated = t.allocated.get(c.child) || 0;
-                var maxSets = c.ratio > 0 ? Math.floor(allocated / c.ratio) : 0;
-                if (maxSets < k_actual) k_actual = maxSets;
-              }
+              });
             });
-            t.k_actual = k_actual;
-          });
+
+            // 2) 再分配：候选按 childSales 降序（规则①），只给「能多组」的实例
+            var cands = [];
+            theories.forEach(function (t) {
+              if (t.k_theory <= 0) return;              // Phase1 就不齐套 → 不接收
+              if (t.k_actual >= effectiveDemandOf(t)) return; // 已满足
+              var prio = 0;
+              t.inst.group.slots.forEach(function (slot) {
+                slot.children.forEach(function (c) {
+                  if (!isShared(c.child)) return;
+                  var cs = t.inst.sales * c.ratio;
+                  if (cs > prio) prio = cs;
+                });
+              });
+              cands.push({ t: t, prio: prio });
+            });
+            cands.sort(function (a, b) { return b.prio - a.prio; });
+
+            var gave = false;
+            cands.forEach(function (cn) {
+              if (allocateTo(cn.t)) gave = true;
+            });
+
+            // 3) 重新计算 k_actual
+            theories.forEach(calcKActual);
+
+            if (!gave && released === 0) break;
+          }
         })();
 
         // ── Phase 4: 扣减非共享子件库存 + 输出消耗明细 + 结果 ──
